@@ -1,0 +1,8 @@
+gst-launch-1.0 multifilesrc location=frame%032d.jpg index=1 caps="image/jpeg,framerate=24/1" ! jpegdec ! jpegenc ! avimux ! filesink location=timelapse.avi
+
+gst-launch-1.0  v4l2src ! videoconvert ! jpegenc ! queue max-size-buffers=0
+  max-size-time=0 max-size-bytes=0 min-threshold-time=90000000000 !
+  tee name="split" !
+  queue ! jpegdec ! autovideosink sync=false
+  split. ! queue ! videorate max-rate=1 !
+  multifilesink location="img/frame%032d.jpg"
