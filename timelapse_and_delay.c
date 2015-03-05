@@ -21,51 +21,67 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <gst/gst.h>
 
 
 static void
-event_loop (GstElement * pipe)
+event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
 {
+  FILE *fp;
+  gchar *text;
   GstBus *bus;
   GstMessage *message = NULL;
 
+  text = (gchar *) malloc (512 * sizeof (gchar));
   bus = gst_element_get_bus (GST_ELEMENT (pipe));
 
   while (TRUE) {
-    message = gst_bus_poll (bus, GST_MESSAGE_ANY, GST_CLOCK_TIME_NONE);
-    g_assert (message != NULL);
+    message = gst_bus_pop (bus);
+    if (message != NULL) {
+      switch (message->type) {
+        case GST_MESSAGE_EOS:
+          gst_message_unref (message);
+          return;
+        case GST_MESSAGE_ERROR:{
+          GError *gerror;
+          gchar *debug;
 
-    switch (message->type) {
-      case GST_MESSAGE_EOS:
-        gst_message_unref (message);
-        return;
-      case GST_MESSAGE_ERROR:{
-        GError *gerror;
-        gchar *debug;
+          gst_message_parse_error (message, &gerror, &debug);
+          gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
+          gst_message_unref (message);
+          g_error_free (gerror);
+          g_free (debug);
+          return;
+        }
+        case GST_MESSAGE_WARNING:{
+          GError *gerror;
+          gchar *debug;
 
-        gst_message_parse_error (message, &gerror, &debug);
-        gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
-        gst_message_unref (message);
-        g_error_free (gerror);
-        g_free (debug);
-        return;
+          gst_message_parse_warning (message, &gerror, &debug);
+          gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
+          gst_message_unref (message);
+          g_error_free (gerror);
+          g_free (debug);
+          break;
+        }
+        default:
+          gst_message_unref (message);
+          break;
       }
-      case GST_MESSAGE_WARNING:{
-        GError *gerror;
-        gchar *debug;
-
-        gst_message_parse_warning (message, &gerror, &debug);
-        gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
-        gst_message_unref (message);
-        g_error_free (gerror);
-        g_free (debug);
-        break;
-      }
-      default:
-        gst_message_unref (message);
-        break;
     }
+
+    fp = fopen (file_location, "r");
+    if (!fp)
+      g_print ("unable to open file %s", file_location);
+    else {
+      fgets (text, 256, fp);
+      fclose(fp);
+
+      g_object_set (overlay, "text", text, NULL);
+    }
+
+    g_usleep (100000);
   }
 }
 
@@ -73,14 +89,14 @@ int
 main (int argc, char *argv[])
 {
   GstElement *bin, *videosrc, *conv, *enc, *q0, *tee;
-  GstElement *q1, *dec, *videosink;
+  GstElement *q1, *dec, *overlay, *videosink;
   GstElement *q2, *rate, *filesink;
   // GstBin *src, *delay, *timelapse;
 
   gst_init (&argc, &argv);
 
-  if (argc != 1) {
-    g_print ("usage: \n");
+  if (argc != 2) {
+    g_print ("usage: ./timelapse_and_delay tweets_file\n");
     exit (-1);
   }
 
@@ -107,6 +123,7 @@ main (int argc, char *argv[])
   /* Delay */
   q1 = gst_element_factory_make ("queue", "q1");
   dec = gst_element_factory_make ("jpegdec", "dec");
+  overlay = gst_element_factory_make ("textoverlay", "overlay");
   videosink = gst_element_factory_make ("xvimagesink", "videosink");
   g_assert (q1);
   g_assert (dec);
@@ -122,20 +139,21 @@ main (int argc, char *argv[])
 
   /* add objects to the main pipeline */
   gst_bin_add_many (GST_BIN (bin), videosrc, conv, enc, q0, tee, q1, dec,
-                    videosink, q2, rate, filesink, NULL);
+                    overlay, videosink, q2, rate, filesink, NULL);
 
   /* set all properties */
   g_object_set (q0, "max-size-time", 0,
                 "max-size-bytes", 0,
                 "max-size-buffers", 0,
                 "min-threshold-time", 3000000000,NULL);
+  g_object_set (overlay, "text", "starting", NULL);
   g_object_set (videosink, "sync", 0, NULL);
   g_object_set (rate, "max-rate", 1, NULL);
   g_object_set (filesink, "location", "img/frame%032d.jpg", NULL);
 
   /* link the elements. */
   gst_element_link_many (videosrc, conv, enc, q0, tee, NULL);
-  gst_element_link_many (tee, q1, dec, videosink, NULL);
+  gst_element_link_many (tee, q1, dec, overlay, videosink, NULL);
   gst_element_link_many (tee, q2, rate, filesink, NULL);
 
   g_print ("Start rolling\n");
@@ -144,7 +162,7 @@ main (int argc, char *argv[])
   gst_element_set_state (bin, GST_STATE_PLAYING);
 
   /* Run event loop listening for bus messages until EOS or ERROR */
-  event_loop (bin);
+  event_loop (bin, argv[1], overlay);
 
   g_print ("Finished - stopping pipeline\n");
 
