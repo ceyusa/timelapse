@@ -59,35 +59,32 @@ keyboard_cb (const gchar * key_input, gpointer user_data)
   }
 }
 
+static inline void
+print_error (GstObject * src, GError * error, gchar * debug)
+{
+  gst_object_default_error (src, error, debug);
+  if (error)
+    g_error_free (error);
+  g_free (debug);
+}
 
 static gboolean
 bus_msg (GstBus * bus, GstMessage * msg, gpointer user_data)
 {
   App *app = user_data;
+  GError *error = NULL;
+  gchar *debug = NULL;
 
   switch (GST_MESSAGE_TYPE (msg)) {
-    case GST_MESSAGE_ERROR:{
-      GError *gerror;
-      gchar *debug;
-
-      gst_message_parse_error (msg, &gerror, &debug);
-      gst_object_default_error (GST_MESSAGE_SRC (msg), gerror, debug);
-      g_error_free (gerror);
-      g_free (debug);
-
+    case GST_MESSAGE_ERROR:
+      gst_message_parse_error (msg, &error, &debug);
+      print_error (GST_MESSAGE_SRC (msg), error, debug);
       g_main_loop_quit (app->loop);
       break;
-    }
-    case GST_MESSAGE_WARNING:{
-      GError *gerror;
-      gchar *debug;
-
-      gst_message_parse_warning (msg, &gerror, &debug);
-      gst_object_default_error (GST_MESSAGE_SRC (msg), gerror, debug);
-      g_error_free (gerror);
-      g_free (debug);
+    case GST_MESSAGE_WARNING:
+      gst_message_parse_warning (msg, &error, &debug);
+      print_error (GST_MESSAGE_SRC (msg), error, debug);
       break;
-    }
     case GST_MESSAGE_EOS:
       g_main_loop_quit (app->loop);
       break;
