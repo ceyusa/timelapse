@@ -1,17 +1,25 @@
-LDFLAGS += `pkg-config --libs glib-2.0 gstreamer-1.0`
-CFLAGS += `pkg-config --cflags glib-2.0 gstreamer-1.0`
+CFLAGS := -O0 -ggdb -Wall -Wextra -Wno-unused-parameter
+override CFLAGS += -Wmissing-prototypes -ansi -std=gnu99 -D_GNU_SOURCE
 
-SOURCES = $(wildcard *.c)
-OBJECTS = $(patsubst %.c,%.o,$(SOURCES))
+GST_CFLAGS := $(shell pkg-config --cflags gstreamer-1.0)
+GST_LIBS := $(shell pkg-config --libs gstreamer-1.0)
 
-all: timelapse_and_delay
+SOURCES = timelapse_and_delay.c
+OBJECTS = $(patsubst %.c, %.o, $(SOURCES))
 
-player: $(OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $(OBJECTS)
+all:
 
-%.o: %.c
-	$(CC) -c $< $(CFLAGS) -o $@
+timelapse_and_delay: $(OBJECTS)
+timelapse_and_delay: override CFLAGS += $(GST_CFLAGS)
+timelapse_and_delay: override LDFLAGS += $(GST_LIBS)
+targets += timelapse_and_delay
+
+all: $(targets)
+
+%.o:: %.c
+	$(CC) $(CFLAGS) $(INCLUDES) -MMD -o $@ -c $<
 
 clean:
-	rm -f $(wildcard *.o) timelapse_and_delay
+	rm -f $(OBJECTS) $(targets) *.d
 
+-include *.d
