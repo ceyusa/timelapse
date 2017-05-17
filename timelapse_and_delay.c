@@ -32,61 +32,42 @@ typedef struct
   gchar *logfname;
 } App;
 
-static void
-event_loop (App * app)
+static gboolean
+bus_msg (GstBus * bus, GstMessage * msg, gpointer user_data)
 {
-  FILE *fp;
-  gchar text[BUFSIZ];
-  GstBus *bus;
-  GstMessage *message = NULL;
+  App *app = user_data;
 
-  bus = gst_element_get_bus (GST_ELEMENT (app->pipeline));
+  switch (GST_MESSAGE_TYPE (msg)) {
+    case GST_MESSAGE_ERROR:{
+      GError *gerror;
+      gchar *debug;
 
-  while (TRUE) {
-    message = gst_bus_pop (bus);
-    if (message != NULL) {
-      switch (message->type) {
-        case GST_MESSAGE_EOS:
-          gst_message_unref (message);
-          return;
-        case GST_MESSAGE_ERROR:{
-          GError *gerror;
-          gchar *debug;
+      gst_message_parse_error (msg, &gerror, &debug);
+      gst_object_default_error (GST_MESSAGE_SRC (msg), gerror, debug);
+      g_error_free (gerror);
+      g_free (debug);
 
-          gst_message_parse_error (message, &gerror, &debug);
-          gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
-          gst_message_unref (message);
-          g_error_free (gerror);
-          g_free (debug);
-          return;
-        }
-        case GST_MESSAGE_WARNING:{
-          GError *gerror;
-          gchar *debug;
-
-          gst_message_parse_warning (message, &gerror, &debug);
-          gst_object_default_error (GST_MESSAGE_SRC (message), gerror, debug);
-          gst_message_unref (message);
-          g_error_free (gerror);
-          g_free (debug);
-          break;
-        }
-        default:
-          gst_message_unref (message);
-          break;
-      }
+      g_main_loop_quit (app->loop);
+      break;
     }
+    case GST_MESSAGE_WARNING:{
+      GError *gerror;
+      gchar *debug;
 
-    fp = fopen (app->logfname, "r");
-    if (fp) {
-      fgets (text, BUFSIZ - 1, fp);
-      fclose(fp);
-
-      g_object_set (app->overlay, "text", text, NULL);
+      gst_message_parse_warning (msg, &gerror, &debug);
+      gst_object_default_error (GST_MESSAGE_SRC (msg), gerror, debug);
+      g_error_free (gerror);
+      g_free (debug);
+      break;
     }
-
-    g_usleep (100000);
+    case GST_MESSAGE_EOS:
+      g_main_loop_quit (app->loop);
+      break;
+    default:
+      break;
   }
+
+  return TRUE;
 }
 
 static void
@@ -147,6 +128,8 @@ int
 main (int argc, char ** argv)
 {
   App app;
+  GstBus *bus;
+  guint busid;
 
   gst_init (&argc, &argv);
 
@@ -160,11 +143,18 @@ main (int argc, char ** argv)
   g_assert (app.pipeline);
 
   build_pipeline (&app);
+  bus = gst_element_get_bus (app.pipeline);
+  busid = gst_bus_add_watch (bus, bus_msg, &app);
+  gst_object_unref (bus);
+
+  app.loop = g_main_loop_new (NULL, FALSE);
 
   gst_element_set_state (app.pipeline, GST_STATE_PLAYING);
-  event_loop (&app);
+  g_main_loop_run (app.loop);
   gst_element_set_state (app.pipeline, GST_STATE_NULL);
 
+  g_source_remove (busid);
+  g_main_loop_unref (app.loop);
   gst_object_unref (app.pipeline);
 
   return 0;
