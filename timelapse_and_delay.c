@@ -33,8 +33,12 @@ typedef struct
   GstElement *pipeline;
   GstElement *overlay;
   GMainLoop *loop;
-  gchar *logfname;
   guint index;
+
+  gchar *logfname;
+  GIOChannel *channel;
+  gchar *last_line;
+  guint ioid;
 } App;
 
 static void
@@ -60,6 +64,63 @@ keyboard_cb (const gchar * key_input, gpointer user_data)
     default:
       break;
   }
+}
+
+static gboolean
+update_overlay (gpointer user_data)
+{
+  App *app = user_data;
+
+  if (app->last_line && app->overlay) {
+    g_object_set (app->overlay, "text", app->last_line, NULL);
+    g_clear_pointer (&app->last_line, g_free);
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+read_last_line (GIOChannel * channel, GIOCondition condition, gpointer user_data)
+{
+  GError *error = NULL;
+  App *app = user_data;
+
+  g_free (app->last_line);
+  g_io_channel_read_line (channel, &app->last_line, NULL, NULL, &error);
+  if (error) {
+    g_printerr ("Error reading IRC log: %s\n", error->message);
+    g_error_free (error);
+    /* TODO: close, remove and try_open_channel() again */
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+try_open_channel (gpointer user_data)
+{
+  App *app = user_data;
+  GIOChannel *channel;
+  GError *error = NULL;
+
+  if (app->channel)
+    return G_SOURCE_REMOVE;
+
+  channel = g_io_channel_new_file (app->logfname, "r", NULL);
+  if (!channel)
+    return G_SOURCE_CONTINUE;
+
+  g_io_channel_seek_position (channel, 0, G_SEEK_END, &error);
+  if (error) {
+    g_printerr ("Error seeking IRC log: %s\n", error->message);
+    g_error_free (error);
+    g_io_channel_unref (channel);
+    return G_SOURCE_CONTINUE;
+  }
+
+  app->ioid = g_io_add_watch (channel, G_IO_IN, read_last_line, app);
+  app->channel = channel;
+  return G_SOURCE_REMOVE;
 }
 
 static inline void
@@ -211,17 +272,27 @@ main (int argc, char ** argv)
     exit (-1);
   }
 
-  app.logfname = argv[1];
+  /* images directory */
   if (!setup_images_dir (&app)) {
     exit (-1);
   }
+
+  /* gstreamer pipeline */
   app.pipeline = gst_pipeline_new ("pipeline");
   g_assert (app.pipeline);
-
   build_pipeline (&app);
+
   bus = gst_element_get_bus (app.pipeline);
   busid = gst_bus_add_watch (bus, bus_msg, &app);
   gst_object_unref (bus);
+
+  /* irc log */
+  app.ioid = 0;
+  app.last_line = NULL;
+  app.channel = NULL;
+  app.logfname = argv[1];
+  g_timeout_add_seconds (1, try_open_channel, &app);
+  g_timeout_add_seconds (5, update_overlay, &app);
 
   app.loop = g_main_loop_new (NULL, FALSE);
 
@@ -234,9 +305,14 @@ main (int argc, char ** argv)
   g_main_loop_run (app.loop);
   gst_element_set_state (app.pipeline, GST_STATE_NULL);
 
+  if (app.ioid != 0)
+    g_source_remove (app.ioid);
   g_source_remove (busid);
   g_main_loop_unref (app.loop);
   gst_object_unref (app.pipeline);
+  if (app.channel)
+    g_io_channel_unref (app.channel);
+  g_free (app.last_line);
 
   return 0;
 }
