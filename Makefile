@@ -4,7 +4,7 @@ override CFLAGS += -Wmissing-prototypes -ansi -std=gnu99 -D_GNU_SOURCE
 GST_CFLAGS := $(shell pkg-config --cflags gstreamer-1.0)
 GST_LIBS := $(shell pkg-config --libs gstreamer-1.0)
 
-SOURCES = timelapse_and_delay.c
+SOURCES = timelapse_and_delay.c gst-play-kb.c
 OBJECTS = $(patsubst %.c, %.o, $(SOURCES))
 
 all:

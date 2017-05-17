@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <gst/gst.h>
 
+#include "gst-play-kb.h"
+
 typedef struct
 {
   GstElement *pipeline;
@@ -31,6 +33,32 @@ typedef struct
   GMainLoop *loop;
   gchar *logfname;
 } App;
+
+static void
+restore_terminal (void)
+{
+  gst_play_kb_set_key_handler (NULL, NULL);
+}
+
+static void
+keyboard_cb (const gchar * key_input, gpointer user_data)
+{
+  App *app = user_data;
+  gchar key = '\0';
+
+  /* only want to switch/case on single char, not first char of string */
+  if (key_input[0] != '\0' && key_input[1] == '\0')
+    key = g_ascii_tolower (key_input[0]);
+
+  switch (key) {
+    case 'q':
+      gst_element_send_event (app->pipeline, gst_event_new_eos ());
+      break;
+    default:
+      break;
+  }
+}
+
 
 static gboolean
 bus_msg (GstBus * bus, GstMessage * msg, gpointer user_data)
@@ -148,6 +176,11 @@ main (int argc, char ** argv)
   gst_object_unref (bus);
 
   app.loop = g_main_loop_new (NULL, FALSE);
+
+  if (gst_play_kb_set_key_handler (keyboard_cb, &app)) {
+    g_print ("Press 'q' to quit…\n");
+    atexit (restore_terminal);
+  }
 
   gst_element_set_state (app.pipeline, GST_STATE_PLAYING);
   g_main_loop_run (app.loop);
