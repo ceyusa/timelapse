@@ -20,8 +20,10 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <gst/gst.h>
 
 #include "gst-play-kb.h"
@@ -32,6 +34,7 @@ typedef struct
   GstElement *overlay;
   GMainLoop *loop;
   gchar *logfname;
+  guint index;
 } App;
 
 static void
@@ -144,9 +147,54 @@ build_pipeline (App * app)
   g_object_set (overlay, "text", "starting", NULL);
   g_object_set (vsink, "sync", FALSE, NULL);
   g_object_set (rate, "max-rate", 1, NULL);
-  g_object_set (fsink, "location", "img/frame%032d.jpg", NULL);
+  g_object_set (fsink, "location", "images/frame%032d.jpg", "index",
+      app->index, NULL);
 
   app->overlay = overlay;
+}
+
+static gboolean
+setup_images_dir (App * app)
+{
+  GError *error = NULL;
+  GDir *dir;
+  const gchar *fname;
+  gchar *str, *end;
+  gdouble num, index = 0;
+
+  if (g_mkdir_with_parents ("images", 0775) != 0) {
+    g_printerr ("Cannot create directory for images: %s\n", g_strerror (errno));
+    return FALSE;
+  }
+
+  dir = g_dir_open ("images", 0, &error);
+  if (error) {
+    g_printerr ("Cannot open directory for images: %s\n", error->message);
+    g_error_free (error);
+    return FALSE;
+  }
+
+  while ((fname = g_dir_read_name (dir))) {
+    if (!(g_str_has_prefix (fname, "frame")
+          && g_str_has_suffix (fname, ".jpg")))
+      continue;
+    str = g_strdup (fname + 5);       /* offset "frame" */
+    end = g_strstr_len (str, -1, ".jpg");
+    if (end) {
+      *end = '\0';
+      errno = 0;
+      num = strtol (str, &end, 10);
+      if (errno == 0 && *end == '\0')
+        index = MAX (index, num);
+    }
+    g_free (str);
+  }
+
+  g_dir_close (dir);
+
+  app->index = index + 1;
+
+  return TRUE;
 }
 
 int
@@ -164,6 +212,9 @@ main (int argc, char ** argv)
   }
 
   app.logfname = argv[1];
+  if (!setup_images_dir (&app)) {
+    exit (-1);
+  }
   app.pipeline = gst_pipeline_new ("pipeline");
   g_assert (app.pipeline);
 
