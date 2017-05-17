@@ -145,7 +145,7 @@ main (int argc, char *argv[])
   g_object_set (q0, "max-size-time", 0,
                 "max-size-bytes", 0,
                 "max-size-buffers", 0,
-                "min-threshold-time", 3000000000,NULL);
+                "min-threshold-time", 3 * GST_SECOND,NULL);
   g_object_set (overlay, "text", "starting", NULL);
   g_object_set (videosink, "sync", 0, NULL);
   g_object_set (rate, "max-rate", 1, NULL);
