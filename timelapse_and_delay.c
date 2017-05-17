@@ -1,6 +1,6 @@
 /*
  * Copyright 2015 Luis de Bethencourt <luis.bg@samsung.com>
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -23,7 +23,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <gst/gst.h>
-
 
 static void
 event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
@@ -85,92 +84,81 @@ event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
   }
 }
 
-int
-main (int argc, char *argv[])
+static void
+build_pipeline (GstElement * pipeline)
 {
-  GstElement *bin, *videosrc, *conv, *enc, *q0, *tee;
-  GstElement *q1, *dec, *overlay, *videosink;
-  GstElement *q2, *rate, *filesink;
-  // GstBin *src, *delay, *timelapse;
+  GstElement *src, *conv, *tee, *q0, *overlay, *vsink, *q1, *rate, *enc, *fsink;
+
+  /*
+     v4l2src ! videoconvert ! tee name=t ! \
+       queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 min-threshold-time=3000000000 ! \
+       textoverlay ! xvimagesink sync=false \
+       t. ! queue ! videorate max-rate=1 ! jpegenc ! fakesink
+  */
+
+  src = gst_element_factory_make ("v4l2src", NULL);
+  g_assert (src);
+  conv = gst_element_factory_make ("videoconvert", NULL);
+  g_assert (conv);
+  tee = gst_element_factory_make ("tee", NULL);
+  g_assert (tee);
+
+  /* render bin */
+  q0 = gst_element_factory_make ("queue", NULL);
+  g_assert (q0);
+  overlay = gst_element_factory_make ("textoverlay", "overlay");
+  g_assert (overlay);
+  vsink = gst_element_factory_make ("xvimagesink", NULL);
+  g_assert (vsink);
+
+  /* jpeg bin */
+  q1 = gst_element_factory_make ("queue", NULL);
+  g_assert (q1);
+  rate = gst_element_factory_make ("videorate", NULL);
+  g_assert (rate);
+  enc = gst_element_factory_make ("jpegenc", NULL);
+  g_assert (enc);
+  fsink = gst_element_factory_make ("multifilesink", NULL);
+  g_assert (fsink);
+
+  gst_bin_add_many (GST_BIN (pipeline), src, conv, tee, q0, overlay, vsink, q1,
+      rate, enc, fsink, NULL);
+
+  g_assert (gst_element_link_many (src, conv, tee, NULL));
+  g_assert (gst_element_link_many (tee, q0, overlay, vsink, NULL));
+  g_assert (gst_element_link_many (tee, q1, rate, enc, fsink, NULL));
+
+  g_object_set (q0, "max-size-time", 0, "max-size-bytes", 0,
+      "max-size-buffers", 0, "min-threshold-time", 3 * GST_SECOND, NULL);
+  g_object_set (overlay, "text", "starting", NULL);
+  g_object_set (vsink, "sync", FALSE, NULL);
+  g_object_set (rate, "max-rate", 1, NULL);
+  g_object_set (fsink, "location", "img/frame%032d.jpg", NULL);
+}
+
+int
+main (int argc, char ** argv)
+{
+  GstElement *pipeline, *overlay;
 
   gst_init (&argc, &argv);
 
   if (argc != 2) {
-    g_print ("usage: ./timelapse_and_delay tweets_file\n");
+    g_print ("usage: ./%s irc_log\n", argv[0]);
     exit (-1);
   }
 
-  g_print ("Constructing pipeline\n");
+  pipeline = gst_pipeline_new ("pipeline");
+  g_assert (pipeline);
 
-  /* create a new bin to hold the elements */
-  bin = gst_pipeline_new ("pipeline");
-  g_assert (bin);
+  build_pipeline (pipeline);
+  overlay = gst_bin_get_by_name (GST_BIN (pipeline), "overlay");
 
-  /* Create the jpegs */
-  // src = (GstBin *) gst_bin_new (NULL);
-  // g_assert (src);
-  videosrc = gst_element_factory_make ("v4l2src", "webcam");
-  conv = gst_element_factory_make ("videoconvert", "conv0");
-  enc = gst_element_factory_make ("jpegenc", "enc");
-  q0 = gst_element_factory_make ("queue", "q0");
-  tee = gst_element_factory_make ("tee", "split");
-  g_assert (videosrc);
-  g_assert (conv);
-  g_assert (enc);
-  g_assert (q0);
-  g_assert (tee);
+  gst_element_set_state (pipeline, GST_STATE_PLAYING);
+  event_loop (pipeline, argv[1], overlay);
+  gst_element_set_state (pipeline, GST_STATE_NULL);
 
-  /* Delay */
-  q1 = gst_element_factory_make ("queue", "q1");
-  dec = gst_element_factory_make ("jpegdec", "dec");
-  overlay = gst_element_factory_make ("textoverlay", "overlay");
-  videosink = gst_element_factory_make ("xvimagesink", "videosink");
-  g_assert (q1);
-  g_assert (dec);
-  g_assert (videosink);
-
-  /* Time lapse */
-  q2 = gst_element_factory_make ("queue", "q2");
-  rate = gst_element_factory_make ("videorate", "rate");
-  filesink = gst_element_factory_make ("multifilesink", "filesink");
-  g_assert (q2);
-  g_assert (rate);
-  g_assert (filesink);
-
-  /* add objects to the main pipeline */
-  gst_bin_add_many (GST_BIN (bin), videosrc, conv, enc, q0, tee, q1, dec,
-                    overlay, videosink, q2, rate, filesink, NULL);
-
-  /* set all properties */
-  g_object_set (q0, "max-size-time", 0,
-                "max-size-bytes", 0,
-                "max-size-buffers", 0,
-                "min-threshold-time", 3 * GST_SECOND,NULL);
-  g_object_set (overlay, "text", "starting", NULL);
-  g_object_set (videosink, "sync", 0, NULL);
-  g_object_set (rate, "max-rate", 1, NULL);
-  g_object_set (filesink, "location", "img/frame%032d.jpg", NULL);
-
-  /* link the elements. */
-  gst_element_link_many (videosrc, conv, enc, q0, tee, NULL);
-  gst_element_link_many (tee, q1, dec, overlay, videosink, NULL);
-  gst_element_link_many (tee, q2, rate, filesink, NULL);
-
-  g_print ("Start rolling\n");
-
-  /* start playing */
-  gst_element_set_state (bin, GST_STATE_PLAYING);
-
-  /* Run event loop listening for bus messages until EOS or ERROR */
-  event_loop (bin, argv[1], overlay);
-
-  g_print ("Finished - stopping pipeline\n");
-
-  /* stop the bin */
-  gst_element_set_state (bin, GST_STATE_NULL);
-
-  /* Unreffing the bin will clean up all its children too */
-  gst_object_unref (bin);
+  gst_object_unref (pipeline);
 
   return 0;
 }
