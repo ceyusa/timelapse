@@ -24,16 +24,23 @@
 #include <stdio.h>
 #include <gst/gst.h>
 
+typedef struct
+{
+  GstElement *pipeline;
+  GstElement *overlay;
+  GMainLoop *loop;
+  gchar *logfname;
+} App;
+
 static void
-event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
+event_loop (App * app)
 {
   FILE *fp;
-  gchar *text;
+  gchar text[BUFSIZ];
   GstBus *bus;
   GstMessage *message = NULL;
 
-  text = (gchar *) malloc (512 * sizeof (gchar));
-  bus = gst_element_get_bus (GST_ELEMENT (pipe));
+  bus = gst_element_get_bus (GST_ELEMENT (app->pipeline));
 
   while (TRUE) {
     message = gst_bus_pop (bus);
@@ -70,14 +77,12 @@ event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
       }
     }
 
-    fp = fopen (file_location, "r");
-    if (!fp)
-      g_print ("unable to open file %s", file_location);
-    else {
-      fgets (text, 256, fp);
+    fp = fopen (app->logfname, "r");
+    if (fp) {
+      fgets (text, BUFSIZ - 1, fp);
       fclose(fp);
 
-      g_object_set (overlay, "text", text, NULL);
+      g_object_set (app->overlay, "text", text, NULL);
     }
 
     g_usleep (100000);
@@ -85,7 +90,7 @@ event_loop (GstElement * pipe, gchar * file_location, GstElement * overlay)
 }
 
 static void
-build_pipeline (GstElement * pipeline)
+build_pipeline (App * app)
 {
   GstElement *src, *conv, *tee, *q0, *overlay, *vsink, *q1, *rate, *enc, *fsink;
 
@@ -121,8 +126,8 @@ build_pipeline (GstElement * pipeline)
   fsink = gst_element_factory_make ("multifilesink", NULL);
   g_assert (fsink);
 
-  gst_bin_add_many (GST_BIN (pipeline), src, conv, tee, q0, overlay, vsink, q1,
-      rate, enc, fsink, NULL);
+  gst_bin_add_many (GST_BIN (app->pipeline), src, conv, tee, q0, overlay,
+      vsink, q1, rate, enc, fsink, NULL);
 
   g_assert (gst_element_link_many (src, conv, tee, NULL));
   g_assert (gst_element_link_many (tee, q0, overlay, vsink, NULL));
@@ -134,31 +139,33 @@ build_pipeline (GstElement * pipeline)
   g_object_set (vsink, "sync", FALSE, NULL);
   g_object_set (rate, "max-rate", 1, NULL);
   g_object_set (fsink, "location", "img/frame%032d.jpg", NULL);
+
+  app->overlay = overlay;
 }
 
 int
 main (int argc, char ** argv)
 {
-  GstElement *pipeline, *overlay;
+  App app;
 
   gst_init (&argc, &argv);
 
   if (argc != 2) {
-    g_print ("usage: ./%s irc_log\n", argv[0]);
+    g_print ("usage: %s irc_log\n", argv[0]);
     exit (-1);
   }
 
-  pipeline = gst_pipeline_new ("pipeline");
-  g_assert (pipeline);
+  app.logfname = argv[1];
+  app.pipeline = gst_pipeline_new ("pipeline");
+  g_assert (app.pipeline);
 
-  build_pipeline (pipeline);
-  overlay = gst_bin_get_by_name (GST_BIN (pipeline), "overlay");
+  build_pipeline (&app);
 
-  gst_element_set_state (pipeline, GST_STATE_PLAYING);
-  event_loop (pipeline, argv[1], overlay);
-  gst_element_set_state (pipeline, GST_STATE_NULL);
+  gst_element_set_state (app.pipeline, GST_STATE_PLAYING);
+  event_loop (&app);
+  gst_element_set_state (app.pipeline, GST_STATE_NULL);
 
-  gst_object_unref (pipeline);
+  gst_object_unref (app.pipeline);
 
   return 0;
 }
