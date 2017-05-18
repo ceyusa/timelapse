@@ -40,11 +40,14 @@ typedef struct
   GIOChannel *channel;
   gchar *last_line;
   guint ioid;
+  guint io2id;
 
   gboolean hwaccel;
   gchar *device;
   gint delay;
 } App;
+
+static gboolean try_open_channel (gpointer user_data);
 
 static void
 restore_terminal (void)
@@ -69,6 +72,21 @@ keyboard_cb (const gchar * key_input, gpointer user_data)
     default:
       break;
   }
+}
+
+static void
+io_channel_free (App * app)
+{
+  if (app->ioid != 0)
+    g_source_remove (app->ioid);
+  app->ioid = 0;
+  if (app->io2id != 0)
+    g_source_remove (app->io2id);
+  app->io2id = 0;
+  if (app->channel)
+    g_io_channel_unref (app->channel);
+  app->channel = NULL;
+  g_clear_pointer (&app->last_line, g_free);
 }
 
 static gboolean
@@ -120,6 +138,16 @@ bail:
 }
 
 static gboolean
+restore_channel (GIOChannel * channel, GIOCondition condition, gpointer user_data)
+{
+  App *app = user_data;
+
+  io_channel_free (app);
+  g_timeout_add_seconds (1, try_open_channel, &app);
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean
 try_open_channel (gpointer user_data)
 {
   App *app = user_data;
@@ -142,6 +170,8 @@ try_open_channel (gpointer user_data)
   }
 
   app->ioid = g_io_add_watch (channel, G_IO_IN, read_last_line, app);
+  app->io2id = g_io_add_watch (channel, G_IO_ERR | G_IO_HUP | G_IO_NVAL,
+      restore_channel, app);
   app->channel = channel;
   return G_SOURCE_REMOVE;
 }
@@ -415,11 +445,7 @@ main (int argc, char ** argv)
   g_main_loop_run (app.loop);
   gst_element_set_state (app.pipeline, GST_STATE_NULL);
 
-  if (app.ioid != 0)
-    g_source_remove (app.ioid);
-  if (app.channel)
-    g_io_channel_unref (app.channel);
-  g_free (app.last_line);
+  io_channel_free (&app);
 
   g_source_remove (busid);
 
