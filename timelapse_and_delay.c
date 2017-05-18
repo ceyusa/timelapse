@@ -1,5 +1,6 @@
 /*
  * Copyright 2015 Luis de Bethencourt <luis.bg@samsung.com>
+ * Copyright 2017 Victor Jaquez <vjaquez@igalia.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
