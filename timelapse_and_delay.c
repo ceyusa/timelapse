@@ -173,7 +173,7 @@ build_pipeline (App * app)
      v4l2src ! videoconvert ! tee name=t ! \
        queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 min-threshold-time=3000000000 ! \
        textoverlay ! xvimagesink sync=false \
-       t. ! queue ! videorate max-rate=1 ! jpegenc ! fakesink
+       t. ! queue ! videorate max-rate=1 ! jpegenc ! multifilesink
   */
 
   src = gst_element_factory_make ("v4l2src", NULL);
