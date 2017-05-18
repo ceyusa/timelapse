@@ -318,7 +318,7 @@ build_pipeline (App * app)
   g_object_set (queue, "max-size-time", 0, "max-size-bytes", 0,
       "max-size-buffers", 0, "min-threshold-time", app->delay * GST_SECOND, NULL);
 
-  g_object_set (overlay, "font-desc", "Arial Bold 28", "text", "starting", NULL);
+  g_object_set (overlay, "font-desc", "Arial Bold 22", "text", "starting", NULL);
   g_object_set (rate, "max-rate", 1, NULL);
   g_object_set (fsink, "location", "images/frame%032d.jpg", "index",
       app->index, NULL);
