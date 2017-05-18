@@ -39,6 +39,10 @@ typedef struct
   GIOChannel *channel;
   gchar *last_line;
   guint ioid;
+
+  gboolean hwaccel;
+  gchar *device;
+  gint delay;
 } App;
 
 static void
@@ -269,13 +273,34 @@ main (int argc, char ** argv)
   App app;
   GstBus *bus;
   guint busid;
+  gboolean hwaccel = FALSE;
+  gint delay = 3;
+  gchar *device = NULL;
+  gchar **logfiles = NULL;
+  GError *error = NULL;
+  GOptionContext *ctx;
+  GOptionEntry options[] = {
+    {"hw-accel", 'a', 0, G_OPTION_ARG_NONE, &hwaccel,
+        "Use hardware accelearted pipeline (VAAPI)", NULL},
+    {"device", 'd', 0, G_OPTION_ARG_FILENAME, &device,
+        "V4L2 source device", NULL},
+    {"delay", 'w', 0, G_OPTION_ARG_INT, &delay,
+        "Video sink delay (seconds)", NULL},
+    {G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &logfiles, NULL,
+        NULL},
+    {NULL, 0, 0, 0, NULL, NULL, NULL}
+  };
 
-  gst_init (&argc, &argv);
-
-  if (argc != 2) {
-    g_print ("usage: %s irc_log\n", argv[0]);
+  ctx = g_option_context_new ("logfile");
+  g_option_context_add_main_entries (ctx, options, NULL);
+  g_option_context_add_group (ctx, gst_init_get_option_group ());
+  if (!g_option_context_parse (ctx, &argc, &argv, &error)) {
+    g_print ("Error initializing: %s\n", error->message);
+    g_option_context_free (ctx);
+    g_clear_error (&error);
     exit (-1);
   }
+  g_option_context_free (ctx);
 
   /* images directory */
   if (!setup_images_dir (&app)) {
@@ -285,6 +310,12 @@ main (int argc, char ** argv)
   /* gstreamer pipeline */
   app.pipeline = gst_pipeline_new ("pipeline");
   g_assert (app.pipeline);
+  app.hwaccel = hwaccel;
+  app.device = device;
+  if (delay <= 0)
+    app.delay = 3;
+  else
+    app.delay = delay;
   build_pipeline (&app);
 
   bus = gst_element_get_bus (app.pipeline);
@@ -295,9 +326,11 @@ main (int argc, char ** argv)
   app.ioid = 0;
   app.last_line = NULL;
   app.channel = NULL;
-  app.logfname = argv[1];
-  g_timeout_add_seconds (1, try_open_channel, &app);
-  g_timeout_add_seconds (5, update_overlay, &app);
+  app.logfname = logfiles ? logfiles[0] : NULL;
+  if (app.logfname) {
+    g_timeout_add_seconds (1, try_open_channel, &app);
+    g_timeout_add_seconds (5, update_overlay, &app);
+  }
 
   app.loop = g_main_loop_new (NULL, FALSE);
 
@@ -318,6 +351,9 @@ main (int argc, char ** argv)
   if (app.channel)
     g_io_channel_unref (app.channel);
   g_free (app.last_line);
+
+  g_free (device);
+  g_strfreev (logfiles);
 
   return 0;
 }
