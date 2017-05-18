@@ -13,11 +13,13 @@ video stream with some delay (3 seconds by default).
 
 ### Usage:
 
+```
   timelapse_and_delay [OPTION...] logfile
 
   -a, --hw-accel                    Use hardware accelearted pipeline (VAAPI)
   -d, --device                      V4L2 source device
   -w, --delay                       Video sink delay (seconds)
+```
 
 There are two types of pipelines: one using only software-based
 element and another using V4L2/VAAPI. By default uses the
