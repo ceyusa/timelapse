@@ -306,9 +306,8 @@ main (int argc, char ** argv)
   g_option_context_free (ctx);
 
   /* images directory */
-  if (!setup_images_dir (&app)) {
+  if (!setup_images_dir (&app))
     exit (-1);
-  }
 
   /* gstreamer pipeline */
   app.pipeline = gst_pipeline_new ("pipeline");
@@ -348,12 +347,14 @@ main (int argc, char ** argv)
 
   if (app.ioid != 0)
     g_source_remove (app.ioid);
-  g_source_remove (busid);
-  g_main_loop_unref (app.loop);
-  gst_object_unref (app.pipeline);
   if (app.channel)
     g_io_channel_unref (app.channel);
   g_free (app.last_line);
+
+  g_source_remove (busid);
+
+  g_main_loop_unref (app.loop);
+  gst_object_unref (app.pipeline);
 
   g_free (device);
   g_strfreev (logfiles);
