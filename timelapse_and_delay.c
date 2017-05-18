@@ -72,30 +72,17 @@ keyboard_cb (const gchar * key_input, gpointer user_data)
 }
 
 static gboolean
-update_overlay (gpointer user_data)
-{
-  App *app = user_data;
-
-  if (app->last_line && app->overlay) {
-    g_object_set (app->overlay, "text", app->last_line, NULL);
-    g_clear_pointer (&app->last_line, g_free);
-  }
-
-  return G_SOURCE_CONTINUE;
-}
-
-static gboolean
 read_last_line (GIOChannel * channel, GIOCondition condition, gpointer user_data)
 {
   GError *error = NULL;
   App *app = user_data;
   GIOStatus status;
+  gchar *tmp, *pos, *str = NULL;
 
   g_assert (condition == G_IO_IN);
 
-  g_clear_pointer (&app->last_line, g_free);
   do {
-    status = g_io_channel_read_line (channel, &app->last_line, NULL, NULL, &error);
+    status = g_io_channel_read_to_end (channel, &str, NULL, &error);
     if (error) {
       g_printerr ("Error reading IRC log: %s\n", error->message);
       g_error_free (error);
@@ -103,6 +90,32 @@ read_last_line (GIOChannel * channel, GIOCondition condition, gpointer user_data
     }
   } while (status == G_IO_STATUS_AGAIN);
 
+  if (!str || str[0] == '\0')
+    goto bail;
+
+  tmp = app->last_line;
+  if (tmp) {
+    app->last_line = g_strconcat (tmp, str, NULL);
+    g_free (tmp);
+  } else {
+    app->last_line = g_strdup (str);
+  }
+
+  while (TRUE) {
+    pos = strchr (app->last_line, '\n');
+    if (!pos)
+      goto bail;
+
+    *pos = '\0';
+    if (app->overlay)
+      g_object_set (app->overlay, "text", app->last_line, NULL);
+    tmp = g_strdup (pos + 1);
+    g_free (app->last_line);
+    app->last_line = tmp;
+  }
+
+bail:
+  g_free (str);
   return G_SOURCE_CONTINUE;
 }
 
@@ -388,10 +401,8 @@ main (int argc, char ** argv)
   app.last_line = NULL;
   app.channel = NULL;
   app.logfname = logfiles ? logfiles[0] : NULL;
-  if (app.logfname) {
+  if (app.logfname)
     g_timeout_add_seconds (1, try_open_channel, &app);
-    g_timeout_add_seconds (5, update_overlay, &app);
-  }
 
   app.loop = g_main_loop_new (NULL, FALSE);
 
