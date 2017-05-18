@@ -21,6 +21,7 @@
  */
 
 #include <errno.h>
+#include <locale.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -290,6 +291,8 @@ main (int argc, char ** argv)
         NULL},
     {NULL, 0, 0, 0, NULL, NULL, NULL}
   };
+
+  setlocale (LC_ALL, "");
 
   ctx = g_option_context_new ("logfile");
   g_option_context_add_main_entries (ctx, options, NULL);
