@@ -170,9 +170,10 @@ bus_msg (GstBus * bus, GstMessage * msg, gpointer user_data)
 }
 
 static void
-build_pipeline (App * app)
+build_pipeline_sw (GstBin * bin, GstElement * src, GstElement * q0,
+    GstElement * overlay, GstElement * rate, GstElement * fsink)
 {
-  GstElement *src, *conv, *tee, *q0, *overlay, *vsink, *q1, *rate, *enc, *fsink;
+  GstElement *conv, *tee, *vsink, *q1, *enc;
 
   /*
      v4l2src ! videoconvert ! tee name=t ! \
@@ -181,42 +182,100 @@ build_pipeline (App * app)
        t. ! queue ! videorate max-rate=1 ! jpegenc ! multifilesink
   */
 
-  src = gst_element_factory_make ("v4l2src", NULL);
-  g_assert (src);
   conv = gst_element_factory_make ("videoconvert", NULL);
   g_assert (conv);
   tee = gst_element_factory_make ("tee", NULL);
   g_assert (tee);
 
   /* render bin */
-  q0 = gst_element_factory_make ("queue", NULL);
-  g_assert (q0);
-  overlay = gst_element_factory_make ("textoverlay", "overlay");
-  g_assert (overlay);
   vsink = gst_element_factory_make ("xvimagesink", NULL);
   g_assert (vsink);
 
   /* jpeg bin */
   q1 = gst_element_factory_make ("queue", NULL);
   g_assert (q1);
-  rate = gst_element_factory_make ("videorate", NULL);
-  g_assert (rate);
   enc = gst_element_factory_make ("jpegenc", NULL);
   g_assert (enc);
-  fsink = gst_element_factory_make ("multifilesink", NULL);
-  g_assert (fsink);
 
-  gst_bin_add_many (GST_BIN (app->pipeline), src, conv, tee, q0, overlay,
-      vsink, q1, rate, enc, fsink, NULL);
+  gst_bin_add_many (bin, src, conv, tee, q0, overlay, vsink, q1, rate, enc,
+      fsink, NULL);
 
   g_assert (gst_element_link_many (src, conv, tee, NULL));
   g_assert (gst_element_link_many (tee, q0, overlay, vsink, NULL));
   g_assert (gst_element_link_many (tee, q1, rate, enc, fsink, NULL));
 
-  g_object_set (q0, "max-size-time", 0, "max-size-bytes", 0,
-      "max-size-buffers", 0, "min-threshold-time", 3 * GST_SECOND, NULL);
-  g_object_set (overlay, "text", "starting", NULL);
   g_object_set (vsink, "sync", FALSE, NULL);
+}
+
+static void
+build_pipeline_hw_accel (GstBin * bin, GstElement * src, GstElement * q0,
+    GstElement * overlay, GstElement * rate, GstElement * fsink)
+{
+  GstElement *caps, *tee, *dec, *vsink, *q1;
+
+  /*
+     v4l2src ! image/jpeg ! tee name=t ! \
+       queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 min-threshold-time=3000000000 ! \
+       vaapijpegdec ! textoverlay ! vaapisink sync=false \
+       t. ! queue ! videorate max-rate=1 ! multifilesink
+  */
+
+  caps = gst_element_factory_make ("capsfilter", NULL);
+  g_assert (caps);
+  tee = gst_element_factory_make ("tee", NULL);
+  g_assert (tee);
+
+  /* render bin */
+  dec = gst_element_factory_make ("vaapijpegdec", NULL);
+  g_assert (dec);
+  vsink = gst_element_factory_make ("vaapisink", NULL);
+  g_assert (vsink);
+
+  /* jpeg bin */
+  q1 = gst_element_factory_make ("queue", NULL);
+  g_assert (q1);
+
+  gst_bin_add_many (bin, src, caps, tee, q0, dec, overlay, vsink, q1, rate,
+      fsink, NULL);
+
+  g_assert (gst_element_link_many (src, caps, tee, NULL));
+  g_assert (gst_element_link_many (tee, q0, dec, overlay, vsink, NULL));
+  g_assert (gst_element_link_many (tee, q1, rate, fsink, NULL));
+
+  g_object_set (vsink, "sync", FALSE, "fullscreen", TRUE, NULL);
+  g_object_set (caps, "caps", gst_caps_from_string ("image/jpeg, height=720"), NULL);
+}
+
+static void
+build_pipeline (App * app)
+{
+  GstElement *src, *queue, *overlay, *rate, *fsink;
+
+  src = gst_element_factory_make ("v4l2src", NULL);
+  g_assert (src);
+  queue = gst_element_factory_make ("queue", NULL);
+  g_assert (queue);
+  overlay = gst_element_factory_make ("textoverlay", NULL);
+  g_assert (overlay);
+  rate = gst_element_factory_make ("videorate", NULL);
+  g_assert (rate);
+  fsink = gst_element_factory_make ("multifilesink", NULL);
+  g_assert (fsink);
+
+  if (app->hwaccel)
+    build_pipeline_hw_accel (GST_BIN (app->pipeline), src, queue, overlay, rate,
+        fsink);
+  else
+    build_pipeline_sw (GST_BIN (app->pipeline), src, queue, overlay, rate,
+        fsink);
+
+  if (app->device)
+    g_object_set (src, "device", app->device, NULL);
+
+  g_object_set (queue, "max-size-time", 0, "max-size-bytes", 0,
+      "max-size-buffers", 0, "min-threshold-time", app->delay * GST_SECOND, NULL);
+
+  g_object_set (overlay, "font-desc", "Arial Bold 28", "text", "starting", NULL);
   g_object_set (rate, "max-rate", 1, NULL);
   g_object_set (fsink, "location", "images/frame%032d.jpg", "index",
       app->index, NULL);
