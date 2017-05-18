@@ -84,14 +84,19 @@ read_last_line (GIOChannel * channel, GIOCondition condition, gpointer user_data
 {
   GError *error = NULL;
   App *app = user_data;
+  GIOStatus status;
 
-  g_free (app->last_line);
-  g_io_channel_read_line (channel, &app->last_line, NULL, NULL, &error);
-  if (error) {
-    g_printerr ("Error reading IRC log: %s\n", error->message);
-    g_error_free (error);
-    /* TODO: close, remove and try_open_channel() again */
-  }
+  g_assert (condition == G_IO_IN);
+
+  g_clear_pointer (&app->last_line, g_free);
+  do {
+    status = g_io_channel_read_line (channel, &app->last_line, NULL, NULL, &error);
+    if (error) {
+      g_printerr ("Error reading IRC log: %s\n", error->message);
+      g_error_free (error);
+      /* TODO: close, remove and try_open_channel() again */
+    }
+  } while (status == G_IO_STATUS_AGAIN);
 
   return G_SOURCE_CONTINUE;
 }
