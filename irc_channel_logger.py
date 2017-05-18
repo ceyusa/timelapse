@@ -1,32 +1,73 @@
+import signal
 import socket
+import ssl
 import sys
+import time
 
-server = "irc.freenode.net"       #settings
+# settings
+server = "irc.freenode.net"
+port = 8001
 channel = "#gstreamer"
-skip = len(channel)
 botnick = "gst1212104822"
 
-irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #defines the socket
-print "connecting to:" + server
-irc.connect((server, 8001))                                                         #connects to the server
-# irc.setblocking(False)
-irc.send("USER "+ botnick +" "+ botnick +" "+ botnick +" :This is a fun bot!\n") #user authentication
-irc.send("NICK "+ botnick +"\n")                            #sets nick
-irc.send("PRIVMSG nickserv :iNOOPE\r\n")    #auth
-irc.send("JOIN "+ channel +"\n")        #join the chan
+# global
+irc = None
 
-while 1:    # puts it in a loop
-   text = irc.recv(2040)  #receive the text
-   print text   #print text to console
+def sig_int_handler(signal, frame):
+    print("SIGINT: Shutting down nicely...")
+    irc.send("QUIT (bye!)")
+    sys.exit()
 
-   if text.find('PING') != -1:                          #check if 'PING' is found
-      irc.send('PONG ' + text.split() [1] + '\r\n')     #returnes 'PONG' back to the server
+def logline(line):
+   line = line.lstrip(":");
 
-   if text.find("PRIVMSG") != -1 and text.find(channel) != -1:
-      c = text.find(channel)
-      end_of_nick = text.find("!")
-      nick = text[1:end_of_nick]
-      msg = channel + " | <b>&#60;" + nick + "&#62;</b> " + text[c + skip + 2:]  # formatting
-      f = open("irc_messages", "w")
-      f.write(msg)
-      f.close()
+   user = line;
+   user = user.split("!", 1)[0]
+
+   text = line[line.find('PRIVMSG'):]
+   text = text[text.find(':') + 1:]
+   text = text.strip(" \t\n\r")
+
+   msg = "<b>&#60;{0}&#62;</b> {1}".format(user, text)
+
+   with open('irc_messages', 'a') as logfile:
+      print('[LOGGING] {0}'.format(msg))
+      logfile.write ("{0}\n".format(msg))
+      logfile.close()
+
+def send(command):
+    print('[SENT] {0}'.format(command))
+    irc.send("{0}\r\n".format(command))
+
+def runbot():
+   global irc
+
+   irc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+   #irc = ssl.wrap_socket(irc_C)
+
+   irc.connect((server, port))
+   irc.setblocking(False)
+   send("USER {0} {0} {0} :This a fun bot!".format(botnick))
+   send("NICK {0}".format(botnick))
+   send("PRIVMSG nickserv :iNOOPE")
+   send("JOIN {0}".format(channel))
+
+   while True:
+      time.sleep(1)
+
+      try:
+         for text in irc.makefile('r'):
+            print("[RECEIVED] {0}".format(text.strip()))
+            if text.find('PING') != -1:
+               send("PONG {0}".format(text.split()[1]))
+            if (text.find('PRIVMSG') != -1 and text.find(channel) != -1):
+               logline(text)
+      except Exception:
+         continue
+
+def main():
+   signal.signal(signal.SIGINT, sig_int_handler)
+   runbot()
+
+if __name__ == "__main__":
+   main();
